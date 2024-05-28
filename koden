@@ -1,0 +1,95 @@
+#include <HX711_ADC.h>
+#include "Servo.h"
+#include "Arduino.h"
+
+Servo HorisontalServo;
+
+int servoPos = 0; // Variabel for posisjon av Bevegelse()
+
+// Pins
+const int dt = 3; //HX711 dt pin
+const int sck = 2;  //HX711 sck pin
+const int knapp = 12; //Knapp pin som stopper koden i loop()
+ 
+HX711_ADC LoadCell(dt, sck);
+
+// Vektsensor aktiverings variabler
+unsigned long previousMillis = 0;  // Lagrer siste gangen vektsensor ble aktivert
+unsigned long startMillis = 0; // Lagrer start tiden til vektsensor aktivering
+const long interval = 1500;
+const long varighet = 60000; // Varighet til hvor lenge vektsensor skal vaere paa
+bool Aktiv = false;         // Bestemmer om vektsensor skal aktiveres eller ikke
+
+// Knappen variabler
+bool AvPaa = true;
+int knappCurrentState;
+int knappLastState = HIGH;
+
+void setup() {
+  pinMode(knapp, INPUT_PULLUP); // Intialiserer knappene til INPUT_PULLUP
+  HorisontalServo.attach(13);
+  HorisontalServo.write(90);
+  Serial.begin(57600);
+  LoadCell.begin(); // Starter HX711 modul
+  
+  Serial.println("Starter...");
+
+  unsigned long stabilizingTid = 2000; // stablisiserer og gir tid til oppstarten av HX711 modul
+  boolean _tare = true; // Utfoerer en tare på oppstarten
+  LoadCell.start(stabilizingTid, _tare);
+  LoadCell.setCalFactor(-45.0); // Setter kalibrasjons faktor til -45
+
+}
+
+void loop() {
+  // Leser verdi av knappen
+  knappCurrentState = digitalRead(knapp);
+  // Sjekker om knappen har endret verdi (dvs. at knappen har blitt aktivert), og endrer verdi til AvPaa variabel
+  if(knappLastState == LOW && knappCurrentState == HIGH) {
+    AvPaa = !AvPaa;
+    Serial.println(AvPaa);
+  }
+
+  if (LoadCell.update() && AvPaa == true) { // Sjekker og oppdaterer ny data som blir synlig på serial monitor, samtidig tillater eller stanser resten av koden i tilfelle der AvPaa er true eller false
+    float vekt = LoadCell.getData();
+    Serial.print("Vekt: ");
+    Serial.println(vekt);
+    // Sjekker om vekten er over 200 gram
+    Oppstart(vekt);
+
+    if (Aktiv) {
+      unsigned long currentMillis = millis();
+
+      // Kjører koden i 1 min
+      if (currentMillis - startMillis < varighet) {
+        if (currentMillis - previousMillis >= interval) {
+          previousMillis = currentMillis;
+          Bevegelse(180); // Starter bevegelsen
+        }
+      } else {
+        // Slutter bevegelsen etter 1 min
+        Aktiv = false;
+      }
+    }
+  }
+  knappLastState = knappCurrentState; // Setter verdi til knappCurrentState
+}
+
+void Bevegelse(int vinkel) {
+  if (servoPos == 0) {
+    servoPos = vinkel; // Gaar til en ende av spekteret
+  } else {
+    servoPos = 0; // Gaar tilbake til startposisjonen
+  }
+  HorisontalServo.write(servoPos);
+}
+
+void Oppstart(float vekt) {
+  if (vekt >= 200) {
+    if (!Aktiv) {
+      // Starter 
+      Aktiv = true;
+      startMillis = millis();
+    }
+  }
+}
